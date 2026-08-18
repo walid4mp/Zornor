@@ -1,0 +1,9 @@
+import { Router } from 'express';
+import { query } from '../lib/db';
+import { requireAuth, type AuthedRequest } from '../middleware/auth';
+
+export const walletRouter = Router();
+walletRouter.get('/balance', requireAuth, async (req: AuthedRequest, res) => { const r=await query<{coins:number}>('SELECT coins FROM users WHERE id=$1',[req.user!.id]); res.json({coins:r.rows[0]?.coins??0}); });
+walletRouter.get('/packages', requireAuth, async (_req,res)=>{ const r=await query('SELECT id,name,coins,price_cents,currency FROM coin_packages WHERE is_enabled=TRUE ORDER BY display_order'); res.json({packages:r.rows}); });
+walletRouter.get('/requests', requireAuth, async (req:AuthedRequest,res)=>{ const r=await query(`SELECT r.id,r.status,r.payment_method,r.payment_reference,r.admin_note,r.created_at,p.name,p.coins,p.price_cents,p.currency FROM recharge_requests r JOIN coin_packages p ON p.id=r.package_id WHERE r.user_id=$1 ORDER BY r.created_at DESC LIMIT 30`,[req.user!.id]); res.json({requests:r.rows}); });
+walletRouter.post('/recharge', requireAuth, async (req:AuthedRequest,res)=>{ const packageId=String(req.body?.packageId??''); const method=String(req.body?.paymentMethod??'manual'); const reference=String(req.body?.paymentReference??'').trim()||null; if(!packageId)return res.status(400).json({message:'packageId is required'}); const p=await query('SELECT id FROM coin_packages WHERE id=$1 AND is_enabled=TRUE',[packageId]); if(!p.rowCount)return res.status(404).json({message:'Package not found'}); const r=await query(`INSERT INTO recharge_requests(user_id,package_id,payment_method,payment_reference) VALUES($1,$2,$3,$4) RETURNING id,status,created_at`,[req.user!.id,packageId,method,reference]); res.status(201).json({request:r.rows[0],message:'Recharge request submitted for review.'}); });

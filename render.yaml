@@ -1,0 +1,40 @@
+services:
+  - type: web
+    name: zynora-backend
+    runtime: node
+    rootDir: backend
+    plan: free
+    region: oregon
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: 22.16.0
+      - key: PORT
+        value: 10000
+      - key: APP_ORIGIN
+        value: '*'
+      - key: ADMIN_ORIGIN
+        value: '*'
+      - key: DATABASE_URL
+        fromDatabase:
+          name: Zornor
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        generateValue: true
+      - key: ADMIN_NAME
+        value: ZYNORA Admin
+
+databases:
+  - name: Zornor
+    plan: free
+    region: oregon
+    ipAllowList: []

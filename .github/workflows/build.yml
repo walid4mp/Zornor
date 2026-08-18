@@ -1,0 +1,97 @@
+name: Build ZYNORA Android APK
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    name: Flutter Build & APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: write
+    env:
+      # Large heap to avoid the OOM that killed run 31904506105
+      GRADLE_OPTS: "-Xmx4G -Dorg.gradle.daemon=false -XX:MaxMetaspaceSize=2G"
+      FLUTTER_BUILD_MODE: release
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17 (Gradle/AGP)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Setup Flutter (3.24.5, stable)
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.5'
+          channel: stable
+          cache: true
+
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android/.gradle ~/.gradle/caches/transforms-* 2>/dev/null || true
+          df -h
+
+      - name: Configure Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.7'
+
+      - name: Cache Pub dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.pub-cache
+            mobile/.dart_tool/package_config.json
+          key: ${{ runner.os }}-pub-${{ hashFiles('mobile/pubspec.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pub-
+
+      - name: Install Flutter packages
+        working-directory: mobile
+        run: flutter pub get
+
+      - name: Backend install and build
+        working-directory: backend
+        run: |
+          npm ci
+          npm run build
+          npm test
+
+      - name: Static analysis
+        working-directory: mobile
+        run: flutter analyze --no-fatal-infos
+
+      - name: Widget tests
+        working-directory: mobile
+        run: flutter test
+
+      - name: Build release APK (split-per-abi)
+        working-directory: mobile
+        run: |
+          flutter build apk --release \
+            --dart-define=ZYNORA_API_BASE_URL=https://zornor.onrender.com \
+            --dart-define=ZYNORA_SOCKET_URL=https://zornor.onrender.com \
+            --dart-define=APP_ENV=production
+
+      - name: Verify release APK
+        working-directory: mobile
+        run: |
+          test -f build/app/outputs/flutter-apk/app-release.apk
+          ls -lh build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Upload release APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release.apk
+          path: mobile/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 30
